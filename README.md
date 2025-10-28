@@ -7,7 +7,7 @@ This is useful for creating self-referential structs.
 ## Simple Example
 
 ```rust
-use arena_box::*;
+use arena_box::{ArenaBox, make_arena_version, WithLifetime};
 
 // Data contains a message allocated in an arena.
 pub struct Data<'arena> {
@@ -25,58 +25,82 @@ let boxed = ArenaData::new(|arena| Data {
 assert_eq!(boxed.get().msg, "Something");
 ```
 
-## Using ArenaBox as an Error
+## Using ArenaBox for error handling with context
 
 `ArenaBox` is movable, which makes it easy to use as an error type where you can annotate it with additional context as it propagates up the call stack.
 
 ```rust
-use arena_box::*;
-use core::fmt;
+use arena_box::{ArenaBox, make_arena_version, WithLifetime};
+use bumpalo::{Bump, collections::Vec};
+use std::fmt;
 
-#[derive(Debug, PartialEq)]
-struct MyError<'arena> {
-    message: &'arena str,
-    details: &'arena str,
+// Define an error type with arena-allocated strings
+struct DetailedError<'a> {
+    message: &'a str,
+    context: Vec<'a, &'a str>,
 }
 
-impl fmt::Display for MyError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error: {}\nDetails: {}", self.message, self.details)
+impl<'a> DetailedError<'a> {
+    fn new(arena: &'a Bump, message: &'a str) -> Self {
+        DetailedError {
+            message,
+            context: Vec::new_in(arena),
+        }
     }
 }
 
-make_arena_version!(pub MyError, ArenaMyError);
-
-fn return_err() -> Result<(), ArenaMyError> {
-    Err(ArenaMyError::new(|arena| MyError {
-        message: arena.alloc_str("an error happened"),
-        details: "",
-    }))
+impl<'a> fmt::Display for DetailedError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Error: {}", self.message)?;
+        if !self.context.is_empty() {
+            writeln!(f, "\nContext:")?;
+            for (i, ctx) in self.context.iter().rev().enumerate() {
+                writeln!(f, "  [{}] {}", i, ctx)?;
+            }
+        }
+        Ok(())
+    }
 }
 
-let result = return_err().map_err(|mut e| {
-    // Handle the error here
-    let mut handle = e.mutate();
-    handle.details = handle.arena().alloc_str("while running this test case");
-    e
-});
+// Generate the arena version
+make_arena_version!(DetailedError, ArenaError);
 
-let Err(e) = result else {
-    panic!("Expected an error");
-};
+// Helper functions that add context as errors bubble up
+fn parse_value(s: &str) -> Result<i32, ArenaError> {
+    s.parse().map_err(|_| {
+        ArenaError::new(|arena| {
+            DetailedError::new(arena, arena.alloc_str("Invalid number format"))
+        })
+    })
+}
 
-assert_eq!(
-    *e.get(),
-    MyError {
-        message: "an error happened",
-        details: "while running this test case",
-    }
-);
+fn read_config(input: &str) -> Result<i32, ArenaError> {
+    parse_value(input).map_err(|mut err| {
+        let mut ctx = err.mutate();
+        let message = ctx.arena().alloc_str("While parsing configuration");
+        ctx.context.push(message);
+        err
+    })
+}
 
-assert_eq!("an error happened", format!("{}", e));
+fn process_request() -> Result<i32, ArenaError> {
+    read_config("not_a_number").map_err(|mut err| {
+        let mut ctx = err.mutate();
+        let message = ctx.arena().alloc_str("In function process_request()");
+        ctx.context.push(message);
+        err
+    })
+}
 
-assert_eq!(
-    r#"MyError { message: "an error happened", details: "while running this test case" }"#,
-    format!("{:?}", e)
-);
+// Usage
+match process_request() {
+    Ok(value) => println!("Success: {}", value),
+    Err(e) => println!("{}", e),
+}
+// Prints:
+// Error: Invalid number format
+//
+// Context:
+//   [0] In function process_request()
+//   [1] While parsing configuration
 ```

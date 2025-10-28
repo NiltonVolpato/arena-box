@@ -12,3 +12,7 @@ categories = ["development-tools"]
 
 [dependencies]
 bumpalo = "3.19.0"
+
+[dev-dependencies.bumpalo]
+version = "3.19.0"
+features = ["collections"]
