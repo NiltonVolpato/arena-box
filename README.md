@@ -7,7 +7,7 @@ This is useful for creating self-referential structs.
 ## Simple Example
 
 ```rust
-use arena_box::{ArenaBox, make_arena_version, WithLifetime};
+use arena_box::*;
 
 // Data contains a message allocated in an arena.
 pub struct Data<'arena> {
@@ -30,7 +30,10 @@ assert_eq!(boxed.get().msg, "Something");
 `ArenaBox` is movable, which makes it easy to use as an error type where you can annotate it with additional context as it propagates up the call stack.
 
 ```rust
-use arena_box::{ArenaBox, make_arena_version, WithLifetime};
+use arena_box::{
+    ArenaBox,
+    make_arena_version, WithLifetime // Used by make_arena_version
+};
 use bumpalo::{Bump, collections::Vec};
 use std::fmt;
 
@@ -62,7 +65,7 @@ impl<'a> fmt::Display for DetailedError<'a> {
     }
 }
 
-// Generate the arena version
+// Generate the arena version and implement `WithLifetime` trait.
 make_arena_version!(DetailedError, ArenaError);
 
 // Helper functions that add context as errors bubble up
