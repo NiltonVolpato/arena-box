@@ -8,10 +8,25 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::ptr::NonNull;
 
+/// A trait for types that have a lifetime parameter.
 pub trait WithLifetime {
+    /// The type with a lifetime parameter.
     type With<'a>;
 }
 
+/// A macro to create a new type that is a version of the given type that is allocated in an arena.
+///
+/// # Example
+///
+/// ```
+/// # use arena_box::*;
+///
+/// struct Data<'a> {
+///    msg: &'a str,
+/// }
+///
+/// make_arena_version!(pub Data, ArenaData);
+/// ```
 #[macro_export]
 macro_rules! make_arena_version {
     ($vis:vis $name:ident, $alias:ident) => {
@@ -23,12 +38,16 @@ macro_rules! make_arena_version {
     };
 }
 
+/// A handle for mutating the data in an `ArenaBox`.
+///
+/// This struct is created by the [`ArenaBox::mutate`] method.
 pub struct MutHandle<'b, T: WithLifetime> {
     data: &'b mut <T as WithLifetime>::With<'b>,
     arena: &'b Bump,
 }
 
 impl<'b, T: WithLifetime> MutHandle<'b, T> {
+    /// Returns a reference to the arena.
     pub fn arena(&self) -> &'b Bump {
         self.arena
     }
@@ -48,12 +67,52 @@ impl<'b, T: WithLifetime> DerefMut for MutHandle<'b, T> {
     }
 }
 
+/// A smart pointer that holds a struct with arena allocated objects and the arena in the same struct.
+///
+/// This is useful for creating self-referential structs.
+///
+/// # Example
+///
+/// ```
+/// # use arena_box::*;
+///
+/// pub struct Data<'a> {
+///    msg: &'a str,
+/// }
+///
+/// make_arena_version!(pub Data, ArenaData);
+///
+/// let boxed = ArenaData::new(|arena| Data {
+///     msg: arena.alloc_str("Something"),
+/// });
+///
+/// assert_eq!(boxed.get().msg, "Something");
+/// ```
 pub struct ArenaBox<T: WithLifetime> {
     arena: Pin<Box<Bump>>,
     data: NonNull<T>,
 }
 
 impl<T: WithLifetime> ArenaBox<T> {
+    /// Creates a new `ArenaBox`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arena_box::*;
+    ///
+    /// pub struct Data<'a> {
+    ///    msg: &'a str,
+    /// }
+    ///
+    /// make_arena_version!(pub Data, ArenaData);
+    ///
+    /// let boxed = ArenaData::new(|arena| Data {
+    ///     msg: arena.alloc_str("Something"),
+    /// });
+    ///
+    /// assert_eq!(boxed.get().msg, "Something");
+    /// ```
     pub fn new<F>(build: F) -> Self
     where
         F: for<'a> FnOnce(&'a Bump) -> <T as WithLifetime>::With<'a>,
@@ -62,6 +121,7 @@ impl<T: WithLifetime> ArenaBox<T> {
         let arena_ref: &Bump = arena.as_ref().get_ref();
         let data_ref = arena_ref.alloc(build(arena_ref));
         let data = unsafe {
+            // SAFETY: The arena is pinned, so the pointer to the data will be valid for the lifetime of the `ArenaBox`.
             NonNull::new_unchecked(data_ref as *mut <T as WithLifetime>::With<'_> as *mut T)
         };
         ArenaBox { arena, data }
@@ -94,10 +154,40 @@ impl<T: WithLifetime> ArenaBox<T> {
     /// assert_eq!(message, "Something");
     /// ```
     pub fn get<'b>(&'b self) -> &'b <T as WithLifetime>::With<'b> {
+        // SAFETY: The data is guaranteed to be valid for the lifetime of the `ArenaBox`.
         unsafe { &*(self.data.as_ptr() as *const <T as WithLifetime>::With<'b>) }
     }
 
+    /// Mutates the data in the `ArenaBox`.
+    ///
+    /// This method returns a [`MutHandle`] that can be used to mutate the data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arena_box::*;
+    ///
+    /// pub struct Data<'a> {
+    ///   msg: &'a str,
+    /// }
+    ///
+    /// make_arena_version!(pub Data, ArenaData);
+    ///
+    /// let mut boxed = ArenaData::new(|arena| Data {
+    ///    msg: arena.alloc_str("Something"),
+    /// });
+    ///
+    /// assert_eq!(boxed.get().msg, "Something");
+    ///
+    /// {
+    ///    let mut handle = boxed.mutate();
+    ///    handle.msg = handle.arena().alloc_str("Something different");
+    /// }
+    ///
+    /// assert_eq!(boxed.get().msg, "Something different");
+    /// ```
     pub fn mutate<'b>(&'b mut self) -> MutHandle<'b, T> {
+        // SAFETY: The data is guaranteed to be valid for the lifetime of the `ArenaBox`.
         let data = unsafe { &mut *(self.data.as_ptr() as *mut <T as WithLifetime>::With<'b>) };
         let arena = self.arena.as_ref().get_ref();
         MutHandle { data, arena }
