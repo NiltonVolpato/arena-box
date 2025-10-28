@@ -59,15 +59,12 @@ impl<T: WithLifetime> ArenaBox<T> {
         F: for<'a> FnOnce(&'a Bump) -> <T as WithLifetime>::With<'a>,
     {
         let arena = Box::pin(Bump::new());
-        let arena_raw = arena.as_ref().get_ref() as *const Bump;
-        let data_ref = unsafe { &*arena_raw }.alloc(build(unsafe { &*arena_raw }));
-        let data_ptr = unsafe {
+        let arena_ref: &Bump = arena.as_ref().get_ref();
+        let data_ref = arena_ref.alloc(build(arena_ref));
+        let data = unsafe {
             NonNull::new_unchecked(data_ref as *mut <T as WithLifetime>::With<'_> as *mut T)
         };
-        ArenaBox {
-            arena,
-            data: data_ptr,
-        }
+        ArenaBox { arena, data }
     }
 
     /// Get a reference to the data within the arena.
