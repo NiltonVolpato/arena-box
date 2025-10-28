@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- `new_from()` method for transforming one ArenaBox into another while reusing the arena
+
+### Changed
+- **BREAKING:** `make_arena_version!` macro now takes visibility modifier for the alias, not the original type
+  - Before: `make_arena_version!(pub Data, ArenaData)`
+  - After: `make_arena_version!(Data, pub ArenaData)`
+
 ## [0.1.0] - 2025-01-XX
 
 ### Added
