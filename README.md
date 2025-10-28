@@ -15,7 +15,7 @@ pub struct Data<'arena> {
 }
 
 // Creates a shorthand for the smart pointer type.
-make_arena_version!(pub Data, ArenaData);
+make_arena_version!(Data, pub ArenaData);
 
 // Constructs a new instance using the builder closure.
 let boxed = ArenaData::new(|arena| Data {

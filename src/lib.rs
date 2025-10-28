@@ -15,22 +15,34 @@ pub trait WithLifetime {
     type With<'a>;
 }
 
-/// A macro to create a new type that is a version of the given type that is allocated in an arena.
+/// A macro to create a convenient alias for the smart pointer and also
+/// implement the required traits.
+///
+/// You can control the visibility of the alias, so you can make your
+/// struct public as part of your API, while keeping the arena implementation
+/// private.
+///
+/// ```ignore
+/// // Generated alias can have different visibility
+/// make_arena_version!(Data, pub ArenaData);         // public
+/// make_arena_version!(Data, pub(crate) ArenaData);  // crate-only
+/// make_arena_version!(Data, ArenaData);             // private
+/// ```
 ///
 /// # Example
 ///
 /// ```
 /// # use arena_box::*;
 ///
-/// struct Data<'a> {
+/// pub struct Data<'a> {
 ///    msg: &'a str,
 /// }
 ///
-/// make_arena_version!(pub Data, ArenaData);
+/// make_arena_version!(Data, pub ArenaData);
 /// ```
 #[macro_export]
 macro_rules! make_arena_version {
-    ($vis:vis $name:ident, $alias:ident) => {
+    ($name:ident, $vis:vis $alias:ident) => {
         $vis type $alias = ArenaBox<$name<'static>>;
 
         impl WithLifetime for $name<'static> {
@@ -81,7 +93,7 @@ impl<'b, T: WithLifetime> DerefMut for MutHandle<'b, T> {
 ///    msg: &'a str,
 /// }
 ///
-/// make_arena_version!(pub Data, ArenaData);
+/// make_arena_version!(Data, pub ArenaData);
 ///
 /// let boxed = ArenaData::new(|arena| Data {
 ///     msg: arena.alloc_str("Something"),
@@ -106,7 +118,7 @@ impl<T: WithLifetime> ArenaBox<T> {
     ///    msg: &'a str,
     /// }
     ///
-    /// make_arena_version!(pub Data, ArenaData);
+    /// make_arena_version!(Data, pub ArenaData);
     ///
     /// let boxed = ArenaData::new(|arena| Data {
     ///     msg: arena.alloc_str("Something"),
@@ -150,8 +162,8 @@ impl<T: WithLifetime> ArenaBox<T> {
     ///     extra: &'a str,
     /// }
     ///
-    /// make_arena_version!(pub Data, ArenaData);
-    /// make_arena_version!(pub AugmentedData, ArenaAugmentedData);
+    /// make_arena_version!(Data, pub ArenaData);
+    /// make_arena_version!(AugmentedData, pub ArenaAugmentedData);
     ///
     /// let data = ArenaData::new(|arena| Data {
     ///     msg: arena.alloc_str("hello"),
@@ -235,7 +247,7 @@ impl<T: WithLifetime> ArenaBox<T> {
     ///   msg: &'a str,
     /// }
     ///
-    /// make_arena_version!(pub Data, ArenaData);
+    /// make_arena_version!(Data, pub ArenaData);
     ///
     /// let mut boxed = ArenaData::new(|arena| Data {
     ///    msg: arena.alloc_str("Something"),
