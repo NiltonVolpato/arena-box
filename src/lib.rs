@@ -128,6 +128,69 @@ impl<T: WithLifetime> ArenaBox<T> {
         ArenaBox { arena, data }
     }
 
+    /// Creates a new `ArenaBox` by transforming data from another `ArenaBox`, reusing its arena.
+    ///
+    /// This allows you to build up data structures incrementally, where new types can reference
+    /// data from the original type. The source `ArenaBox` is consumed and its arena is moved
+    /// into the new `ArenaBox`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use arena_box::*;
+    ///
+    /// #[derive(Debug, PartialEq)]
+    /// pub struct Data<'a> {
+    ///     msg: &'a str,
+    /// }
+    ///
+    /// #[derive(Debug, PartialEq)]
+    /// pub struct AugmentedData<'a> {
+    ///     original: &'a Data<'a>,
+    ///     extra: &'a str,
+    /// }
+    ///
+    /// make_arena_version!(pub Data, ArenaData);
+    /// make_arena_version!(pub AugmentedData, ArenaAugmentedData);
+    ///
+    /// let data = ArenaData::new(|arena| Data {
+    ///     msg: arena.alloc_str("hello"),
+    /// });
+    ///
+    /// // Transform Data into AugmentedData, reusing the arena
+    /// let augmented = ArenaAugmentedData::new_from(data, |arena, original| {
+    ///     AugmentedData {
+    ///         original, // Reference to the original Data!
+    ///         extra: arena.alloc_str("extra info"),
+    ///     }
+    /// });
+    ///
+    /// assert_eq!(augmented.get().original.msg, "hello");
+    /// assert_eq!(augmented.get().extra, "extra info");
+    /// ```
+    pub fn new_from<U: WithLifetime, F>(source: ArenaBox<U>, build: F) -> Self
+    where
+        F: for<'a> FnOnce(
+            &'a Bump,
+            &'a <U as WithLifetime>::With<'a>,
+        ) -> <T as WithLifetime>::With<'a>,
+    {
+        let ArenaBox { arena, data } = source;
+        let arena_ref = arena.as_ref().get_ref();
+
+        let source_data = unsafe { &*(data.as_ptr() as *const <U as WithLifetime>::With<'_>) };
+
+        let new_data_ref = arena_ref.alloc(build(arena_ref, source_data));
+        let new_data = unsafe {
+            NonNull::new_unchecked(new_data_ref as *mut <T as WithLifetime>::With<'_> as *mut T)
+        };
+
+        ArenaBox {
+            arena,
+            data: new_data,
+        }
+    }
+
     /// Get a reference to the data within the arena.
     ///
     /// # Safety
@@ -226,6 +289,7 @@ where
 mod tests {
     use super::*;
 
+    #[derive(Debug, PartialEq)]
     struct Data<'a> {
         msg: &'a str,
     }
@@ -289,6 +353,34 @@ mod tests {
         let r = boxed.get();
         assert_eq!(r.msg, "Foo");
         do_something(boxed);
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AugmentedData<'arena> {
+        data: &'arena Data<'arena>,
+        extra: &'arena str,
+    }
+
+    make_arena_version!(AugmentedData, ArenaAugmentedData);
+
+    #[test]
+    fn test_new_from() {
+        let a = ArenaData::new(|arena| Data {
+            msg: arena.alloc_str("hello"),
+        });
+
+        let b = ArenaAugmentedData::new_from(a, |arena, data| AugmentedData {
+            data, // Reference to the original!
+            extra: arena.alloc_str("extra info"),
+        });
+
+        assert_eq!(
+            *b.get(),
+            AugmentedData {
+                data: &Data { msg: "hello" },
+                extra: "extra info",
+            }
+        );
     }
 
     #[derive(Debug, PartialEq)]
