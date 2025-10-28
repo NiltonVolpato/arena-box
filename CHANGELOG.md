@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
+Patching missing updates from [0.2.0].
+
 ### Added
 - `new_from()` method for transforming one ArenaBox into another while reusing the arena
 
